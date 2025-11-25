@@ -23,10 +23,10 @@ typedef struct {
 
 // 检测结果
 typedef struct {
-    float bbox[4];
-    float confidence;
-    int class_id;
-    char class_name[32];
+    float x1, y1, x2, y2;   // 框坐标
+    float confidence;        // 置信度
+    int class_id;            // 类别
+    char class_name[32];     // 类名
 } Detection;
 
 // PP-OCR 识别结果
@@ -39,9 +39,9 @@ typedef struct {
 int onnx_model_init(ONNXModel* model, const char* model_path);
 int onnx_model_predict(ONNXModel* model, const float* input_data, 
                       size_t input_size, float** output, size_t* output_size);
-Detection* yolo_postprocess(float* output, int output_size, 
-                           int original_width, int original_height,
-                           float confidence_threshold, int* detection_count);
+Detection* yolo_postprocess(float* output, int output_size,
+                            int img_w, int img_h,
+                            float conf_thresh, int* det_count);
 void onnx_model_cleanup(ONNXModel* model);
 float* image_to_float_array(const unsigned char* image_data, int width, int height, int channels,
                            float mean[3], float std[3]);

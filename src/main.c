@@ -106,25 +106,62 @@ int main(int argc, char* argv[]) {
     
     printf("系统初始化成功，开始模拟运行...\n");
     
-    // 模拟运行
+    //运行测试
     int frame_count = 0;
-    while (!g_shutdown_requested && frame_count < 5) {
-        printf("处理帧 %d\n", frame_count);
+    CameraContext cam;
+    camera_init(&cam, "/dev/video0", 640, 480);
+
+    while (!g_shutdown_requested && frame_count < 10) {
+        unsigned char* frame = NULL;
+        camera_capture_frame(&cam, &frame);
+
+        // 图像转 float
+        float* input_data = image_to_float_array(frame, 640, 480, 3, NULL, NULL);
         
-        // 模拟处理
-        int result_count;
-        unsigned char dummy_data[100] = {0};
-        DetectionResult* results = process_frame(dummy_data, 640, 480, &result_count);
-        
-        if (result_count > 0) {
-            printf("检测到车牌: %s (置信度: %.2f)\n", 
-                   results[0].plate_text, results[0].confidence);
+        // ONNX 推理
+        float* output = NULL;
+        size_t output_size = 0;
+        onnx_model_predict(&g_vehicle_model, input_data, 640*480*3, &output, &output_size);
+
+        // YOLO 后处理
+        int det_count = 0;
+        Detection* dets = yolo_postprocess(output, output_size, 640, 480, 0.5f, &det_count);
+
+        printf("帧 %d 检测到 %d 辆车\n", frame_count, det_count);
+        for (int i = 0; i < det_count; i++) {
+            printf("  车辆框: [%.1f, %.1f, %.1f, %.1f], conf=%.2f\n",
+                dets[i].x1, dets[i].y1, dets[i].x2, dets[i].y2,
+                dets[i].confidence);
         }
-        
-        free(results);
+
+        free(input_data);
+        free(output);
+        free(dets);
+
         frame_count++;
-        sleep(1);
     }
+    camera_cleanup(&cam);
+
+
+    // 模拟运行
+    // int frame_count = 0;
+    // while (!g_shutdown_requested && frame_count < 5) {
+    //     printf("处理帧 %d\n", frame_count);
+        
+    //     // 模拟处理
+    //     int result_count;
+    //     unsigned char dummy_data[100] = {0};
+    //     DetectionResult* results = process_frame(dummy_data, 640, 480, &result_count);
+        
+    //     if (result_count > 0) {
+    //         printf("检测到车牌: %s (置信度: %.2f)\n", 
+    //                results[0].plate_text, results[0].confidence);
+    //     }
+        
+    //     free(results);
+    //     frame_count++;
+    //     sleep(1);
+    // }
     
     system_cleanup();
     printf("系统正常退出\n");

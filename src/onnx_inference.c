@@ -136,9 +136,14 @@ int onnx_model_predict(ONNXModel* model, const float* input_data,
     return 0;
 }
 
+
 // -------------------------
 // YOLO
 // -------------------------
+
+int max(int a, int b) { return a > b ? a : b; }
+int min(int a, int b) { return a < b ? a : b; }
+
 // Sigmoid
 static inline float sigmoid(float x) {
     return 1.f / (1.f + expf(-x));
@@ -221,22 +226,65 @@ void yolo_map_to_original(YoloBox* boxes, int count,
     }
 }
 
+// IOU 计算
+float iou(Detection a, Detection b) {
+    float x1 = max(a.x1, b.x1);
+    float y1 = max(a.y1, b.y1);
+    float x2 = min(a.x2, b.x2);
+    float y2 = min(a.y2, b.y2);
+
+    float w = max(0, x2 - x1);
+    float h = max(0, y2 - y1);
+    float inter = w * h;
+    float union_area = (a.x2 - a.x1)*(a.y2 - a.y1) + (b.x2 - b.x1)*(b.y2 - b.y1) - inter;
+    return union_area > 0 ? inter / union_area : 0;
+}
+
+// 简化 NMS
+int nms(Detection* dets, int det_count, float iou_thresh) {
+    int keep_count = 0;
+    for (int i = 0; i < det_count; i++) {
+        int keep = 1;
+        for (int j = 0; j < keep_count; j++) {
+            if (iou(dets[i], dets[j]) > iou_thresh) {
+                keep = 0;
+                break;
+            }
+        }
+        if (keep) {
+            dets[keep_count++] = dets[i];
+        }
+    }
+    return keep_count;
+}
+
 Detection* yolo_postprocess(float* output, int output_size,
-                            int ow, int oh,
-                            float conf, int* det_count) {
-    printf("执行YOLO后处理 (简化)...\n");
+                            int img_w, int img_h,
+                            float conf_thresh, int* det_count) {
+    // 假设 output 形状为 [num_boxes, 6] : [x, y, w, h, conf, class_id]
+    int max_dets = 100;
+    Detection* dets = malloc(max_dets * sizeof(Detection));
+    int count = 0;
 
-    Detection* d = malloc(sizeof(Detection));
-    d[0].bbox[0] = 100;
-    d[0].bbox[1] = 100;
-    d[0].bbox[2] = 300;
-    d[0].bbox[3] = 200;
-    d[0].confidence = 0.95;
-    d[0].class_id = 0;
-    strcpy(d[0].class_name, "vehicle");
+    int num_boxes = output_size / 6;
+    for (int i = 0; i < num_boxes && count < max_dets; i++) {
+        float conf = output[i*6 + 4];
+        if (conf < conf_thresh) continue;
 
-    *det_count = 1;
-    return d;
+        dets[count].x1 = output[i*6 + 0] - output[i*6 + 2]/2; // cx - w/2
+        dets[count].y1 = output[i*6 + 1] - output[i*6 + 3]/2; // cy - h/2
+        dets[count].x2 = output[i*6 + 0] + output[i*6 + 2]/2;
+        dets[count].y2 = output[i*6 + 1] + output[i*6 + 3]/2;
+        dets[count].confidence = conf;
+        dets[count].class_id = (int)output[i*6 + 5];
+        snprintf(dets[count].class_name, sizeof(dets[count].class_name), "vehicle"); // 只有车辆
+        count++;
+    }
+
+    // NMS
+    int final_count = nms(dets, count, 0.5f);
+    *det_count = final_count;
+    return dets;
 }
 
 // 图像预处理函数，支持PP-OCR
