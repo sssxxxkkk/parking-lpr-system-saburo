@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "random": "c",
+        "onnxruntime_c_api.h": "c",
+        "common_types.h": "c",
+        "image_utils.h": "c"
+    }
+}
