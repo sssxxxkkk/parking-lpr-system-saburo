@@ -1,11 +1,16 @@
 #include "include/onnx_inference.h"
 #include "include/image_utils.h"
 #include "include/utils.h"
-
 #include <onnxruntime_c_api.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+
+typedef struct {
+    float x1, y1, x2, y2;
+    float score;
+    int class_id;
+} YoloBox;
 
 // 全局 API 指针
 static const OrtApi* ort = NULL;
@@ -67,7 +72,7 @@ int onnx_model_init(ONNXModel* model, const char* model_path) {
 
     // 读取输入信息
     for (size_t i = 0; i < model->input_count; i++) {
-        // 名称（已使用新 API）
+        // 名称
         char* input_name = NULL;
         status = ort->SessionGetInputName(model->session, i, allocator, &input_name);
         OrtCheck(status, "GetInputName failed");
@@ -132,8 +137,90 @@ int onnx_model_predict(ONNXModel* model, const float* input_data,
 }
 
 // -------------------------
-// YOLO 后处理（简单）
+// YOLO
 // -------------------------
+// Sigmoid
+static inline float sigmoid(float x) {
+    return 1.f / (1.f + expf(-x));
+}
+
+// 解析 YOLOv5 输出，提取候选框（不含NMS）
+int yolo_decode(const float* output, int num_anchors, int num_classes,
+                float conf_thresh,
+                YoloBox** out_boxes, int* out_count)
+{
+    int max_boxes = 3000;
+    YoloBox* boxes = malloc(sizeof(YoloBox) * max_boxes);
+    int count = 0;
+
+    for (int i = 0; i < num_anchors; i++) {
+
+        const float* ptr = output + i * (5 + num_classes);
+
+        float obj = sigmoid(ptr[4]);
+        if (obj < conf_thresh)
+            continue;
+
+        // 找最大 class prob
+        int best_class = -1;
+        float best_class_prob = 0;
+
+        for (int c = 0; c < num_classes; c++) {
+            float cls = sigmoid(ptr[5 + c]);
+            if (cls > best_class_prob) {
+                best_class_prob = cls;
+                best_class = c;
+            }
+        }
+
+        float score = obj * best_class_prob;
+        if (score < conf_thresh)
+            continue;
+
+        float cx = ptr[0];
+        float cy = ptr[1];
+        float w  = ptr[2];
+        float h  = ptr[3];
+
+        float x1 = cx - w / 2.f;
+        float y1 = cy - h / 2.f;
+        float x2 = cx + w / 2.f;
+        float y2 = cy + h / 2.f;
+
+        boxes[count].x1 = x1;
+        boxes[count].y1 = y1;
+        boxes[count].x2 = x2;
+        boxes[count].y2 = y2;
+        boxes[count].score = score;
+        boxes[count].class_id = best_class;
+
+        count++;
+        if (count >= max_boxes) break;
+    }
+
+    *out_boxes = boxes;
+    *out_count = count;
+    return count;
+}
+
+void yolo_map_to_original(YoloBox* boxes, int count,
+                          int orig_w, int orig_h,
+                          int input_w, int input_h)
+{
+    for (int i = 0; i < count; i++) {
+        boxes[i].x1 = boxes[i].x1 / input_w * orig_w;
+        boxes[i].y1 = boxes[i].y1 / input_h * orig_h;
+        boxes[i].x2 = boxes[i].x2 / input_w * orig_w;
+        boxes[i].y2 = boxes[i].y2 / input_h * orig_h;
+
+        // 限制边界
+        if (boxes[i].x1 < 0) boxes[i].x1 = 0;
+        if (boxes[i].y1 < 0) boxes[i].y1 = 0;
+        if (boxes[i].x2 > orig_w) boxes[i].x2 = orig_w;
+        if (boxes[i].y2 > orig_h) boxes[i].y2 = orig_h;
+    }
+}
+
 Detection* yolo_postprocess(float* output, int output_size,
                             int ow, int oh,
                             float conf, int* det_count) {

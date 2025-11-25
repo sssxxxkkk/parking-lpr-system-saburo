@@ -55,7 +55,7 @@ DetectionResult* process_frame(unsigned char* image_data, int width, int height,
     
     // 简化实现 - 返回一个测试结果
     DetectionResult* results = malloc(sizeof(DetectionResult));
-    strcpy(results[0].plate_text, "京A12345");
+    strcpy(results[0].plate_text, "豫A12345");
     results[0].confidence = 0.9f;
     results[0].vehicle_bbox[0] = 100;
     results[0].vehicle_bbox[1] = 100;

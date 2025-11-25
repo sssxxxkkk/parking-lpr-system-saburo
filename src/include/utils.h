@@ -15,7 +15,7 @@ typedef struct {
     int camera_width;
     int camera_height;
     char vehicle_model[256];
-    char plate_model[256];  // 添加这个字段
+    char plate_model[256];
     char ocr_model[256];
     float vehicle_threshold;
     float plate_threshold;
