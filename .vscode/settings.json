@@ -3,6 +3,12 @@
         "random": "c",
         "onnxruntime_c_api.h": "c",
         "common_types.h": "c",
-        "image_utils.h": "c"
+        "image_utils.h": "c",
+        "plate_recognition.h": "c",
+        "onnx_inference.h": "c",
+        "stdlib.h": "c",
+        "utils.h": "c",
+        "ctype.h": "c",
+        "unistd.h": "c"
     }
 }

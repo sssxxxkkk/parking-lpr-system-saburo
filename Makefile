@@ -5,7 +5,7 @@ INCLUDES = -Isrc/include -Ithird_party/onnxruntime/include
 LIBS = -Lthird_party/onnxruntime/lib -lonnxruntime -lpthread -lm
 
 # 源文件
-SRCS = src/main.c src/onnx_inference.c src/image_utils.c src/video_capture.c src/anti_fraud.c src/utils.c
+SRCS = src/main.c src/onnx_inference.c src/image_utils.c src/video_capture.c src/anti_fraud.c src/utils.c src/plate_recognition.c
 OBJS = $(SRCS:.c=.o)
 TARGET = plate_recognition
 
