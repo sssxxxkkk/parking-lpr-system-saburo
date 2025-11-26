@@ -121,79 +121,121 @@ int onnx_model_init(ONNXModel* model, const char* model_path) {
 }
 
 // -------------------------
-// 真实推理
+// 真实推理 (修复预处理逻辑：HWC->NCHW + /255.0)
 // -------------------------
-// 推理函数
 int onnx_model_predict(ONNXModel* model, const float* input_data, size_t input_size, float** output, size_t* output_size) {
-    printf("执行模型推理...\n");
-
+    // 假设 model->input_width 和 height 仍然是原始的 640x480
+    // 而模型实际需要的是 640x640 (model_h/w)
+    
     OrtStatus* status = NULL;
-
-    // 创建输入张量
-    OrtValue* input_tensor = NULL;
     OrtMemoryInfo* memory_info = model->memory_info;
-    size_t input_data_size = input_size * sizeof(float);
-    printf("输入数据大小: %zu\n", input_data_size);
 
-    // 创建张量
-    status = ort->CreateTensorWithDataAsOrtValue(memory_info, (void*)input_data, input_data_size, 
-                                                 model->input_names, model->input_count, 
-                                                 ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input_tensor);
-    OrtCheck(status, "CreateTensorWithDataAsOrtValue failed");
+    // 1. 模型要求的固定尺寸
+    int64_t model_h = 640;
+    int64_t model_w = 640;
+    int64_t channels = 3;
+    size_t model_pixels = model_h * model_w;
+    size_t model_data_bytes = channels * model_pixels * sizeof(float);
 
-    // 创建输出张量
-    OrtValue* output_tensor = NULL;
-
-    // 执行推理
-    status = ort->Run(model->session, NULL, // 使用默认的运行选项
-                      model->input_names,    // 输入张量的名称
-                      &input_tensor, 1,       // 传入的输入张量及其数量
-                      model->output_names,     // 输出张量的名称
-                      model->output_count,     // 输出张量的数量
-                      &output_tensor);         // 输出张量数组
-    OrtCheck(status, "Run failed");
-
-    // 获取输出张量的类型和形状信息
-    const OrtTensorTypeAndShapeInfo* shape_info;
-    status = ort->GetTensorTypeAndShape(output_tensor, &shape_info);
-    OrtCheck(status, "GetTensorTypeAndShape failed");
-
-    // 获取输出张量的维度数量
-    size_t dims_count = 0;
-    status = ort->GetDimensionsCount(shape_info, &dims_count);
-    OrtCheck(status, "GetDimensionsCount failed");
-
-    // 获取输出张量的总元素数
-    size_t num_elements = 1;
-    int64_t* dims = malloc(dims_count * sizeof(int64_t));
-    status = ort->GetDimensions(shape_info, dims, dims_count);
-    OrtCheck(status, "GetDimensions failed");
-
-    for (size_t i = 0; i < dims_count; i++) {
-        num_elements *= dims[i];
-    }
-    free(dims);
-
-    // 设置输出大小
-    *output_size = num_elements;
-
-    // 获取输出数据（使用 OrtGetTensorData 获取张量数据）
-    void* output_data = NULL;
-    // void* output_data = ort->GetTensorMutableData(output_tensor，&output_data);  // 获取原始数据指针
-    status = ort->GetTensorMutableData(output_tensor,&output_data);
-    OrtCheck(status, "GetTensorMutableData failed");  
-    if (output_data == NULL) {
-        fprintf(stderr, "获取输出数据失败\n");
+    // 2. 分配 NCHW 格式的内存 (并初始化为0/黑色)
+    float* nchw_data = (float*)calloc(channels * model_pixels, sizeof(float));
+    if (!nchw_data) {
+        fprintf(stderr, "内存分配失败\n");
         return -1;
     }
 
-    // 将输出数据拷贝到输出参数中
-    *output = malloc(*output_size * sizeof(float));
-    memcpy(*output, output_data, *output_size * sizeof(float));
+    // 3. 【核心修复】手动进行预处理
+    // 输入图像尺寸 (真实摄像头尺寸)
+    int src_h = 480; 
+    int src_w = 640; 
+    
+    // 指向 NCHW 三个通道的起始位置
+    float* ptr_r = nchw_data;
+    float* ptr_g = nchw_data + model_pixels;
+    float* ptr_b = nchw_data + model_pixels * 2;
 
-    // 释放张量
+    // 原始数据指针 (假设输入 input_data 是 HWC 格式的 raw float，如果还没除255)
+    // 注意：如果你的摄像头给的是 unsigned char (uint8)，这里 input_data 应该转成 float
+    const float* src_ptr = input_data; 
+
+    for (int y = 0; y < src_h; y++) {
+        for (int x = 0; x < src_w; x++) {
+            // HWC 索引: (y * width + x) * 3
+            int src_idx = (y * src_w + x) * 3;
+            
+            // NCHW 索引: (y * model_w + x)  (注意这里用 model_w 计算偏移，实现 Padding 后的对齐)
+            int dst_idx = y * model_w + x;
+
+            // 取出 RGB (假设输入是 RGB 顺序，如果是 BGR 需要换一下)
+            // float r = src_ptr[src_idx + 0];
+            // float g = src_ptr[src_idx + 1];
+            // float b = src_ptr[src_idx + 2];
+            float b = src_ptr[src_idx + 0]; // Blue
+            float g = src_ptr[src_idx + 1]; // Green
+            float r = src_ptr[src_idx + 2]; // Red
+
+            // 赋值并归一化 (0-255 -> 0.0-1.0)
+            // 如果你的 input_data 已经是 0-1 的 float，就去掉 "/ 255.0f"
+            ptr_r[dst_idx] = r / 255.0f;
+            ptr_g[dst_idx] = g / 255.0f;
+            ptr_b[dst_idx] = b / 255.0f;
+        }
+    }
+
+    // 4. 构建 Dimensions
+    int64_t input_node_dims[4] = {1, channels, model_h, model_w};
+
+    // 5. 创建 Tensor
+    OrtValue* input_tensor = NULL;
+    status = ort->CreateTensorWithDataAsOrtValue(
+                memory_info, 
+                (void*)nchw_data, 
+                model_data_bytes, 
+                input_node_dims, 4, 
+                ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input_tensor);
+    
+    if (status != NULL) {
+        printf("CreateTensor Failed: %s\n", ort->GetErrorMessage(status));
+        free(nchw_data);
+        return -1;
+    }
+
+    // 6. Run (推理)
+    OrtValue* output_tensor = NULL;
+    status = ort->Run(model->session, NULL, 
+                      (const char* const*)model->input_names, &input_tensor, 1, 
+                      (const char* const*)model->output_names, model->output_count, 
+                      &output_tensor);
+
+    // 7. 打印一下 Output Shape (用于调试下一步的后处理)
+    const OrtTensorTypeAndShapeInfo* shape_info;
+    ort->GetTensorTypeAndShape(output_tensor, &shape_info);
+    int64_t* out_dims = NULL;
+    size_t out_num_dims = 0;
+    ort->GetDimensionsCount(shape_info, &out_num_dims);
+    out_dims = malloc(sizeof(int64_t) * out_num_dims);
+    ort->GetDimensions(shape_info, out_dims, out_num_dims);
+    
+    printf("DEBUG: 模型输出形状: [");
+    size_t num_elements = 1;
+    for(size_t i=0; i<out_num_dims; i++) {
+        printf("%ld, ", out_dims[i]);
+        num_elements *= out_dims[i];
+    }
+    printf("]\n");
+    free(out_dims);
+
+    // 8. 拷贝输出数据
+    *output_size = num_elements;
+    void* output_raw;
+    ort->GetTensorMutableData(output_tensor, &output_raw);
+    *output = malloc(num_elements * sizeof(float));
+    memcpy(*output, output_raw, num_elements * sizeof(float));
+
+    // 9. 清理
     ort->ReleaseValue(input_tensor);
     ort->ReleaseValue(output_tensor);
+    free(nchw_data); // 释放刚才分配的 NCHW 数据
 
     return 0;
 }
@@ -295,6 +337,22 @@ void yolo_map_to_original(YoloBox* boxes, int count,
     }
 }
 
+// 辅助函数：Sigmoid
+
+// 辅助函数：IOU
+static float compute_iou(float* box_a, float* box_b) {
+    float x1 = fmaxf(box_a[0], box_b[0]);
+    float y1 = fmaxf(box_a[1], box_b[1]);
+    float x2 = fminf(box_a[2], box_b[2]);
+    float y2 = fminf(box_a[3], box_b[3]);
+    float inter_w = fmaxf(0.0f, x2 - x1);
+    float inter_h = fmaxf(0.0f, y2 - y1);
+    float inter_area = inter_w * inter_h;
+    float area_a = (box_a[2] - box_a[0]) * (box_a[3] - box_a[1]);
+    float area_b = (box_b[2] - box_b[0]) * (box_b[3] - box_b[1]);
+    return inter_area / (area_a + area_b - inter_area + 1e-6f);
+}
+
 // IOU 计算
 float iou(Detection a, Detection b) {
     float x1 = max(a.x1, b.x1);
@@ -327,33 +385,142 @@ int nms(Detection* dets, int det_count, float iou_thresh) {
     return keep_count;
 }
 
+// -------------------------------------------------
+// 核心修复：针对 25200x85 输出的后处理
+// -------------------------------------------------
 Detection* yolo_postprocess(float* output, int output_size,
                             int img_w, int img_h,
                             float conf_thresh, int* det_count) {
-    // 假设 output 形状为 [num_boxes, 6] : [x, y, w, h, conf, class_id]
-    int max_dets = 100;
-    Detection* dets = malloc(max_dets * sizeof(Detection));
+    
+    // 1. 基础参数
+    int num_anchors = 25200; // 模型固定的
+    int num_classes = 80;    // 模型固定的 (85 - 5)
+    int step = 5 + num_classes; // 85
+
+    // 临时存储所有通过阈值的框 [x1, y1, x2, y2, score, class_id]
+    // 预分配大一点，比如最多允许 1000 个候选
+    int max_candidates = 1000;
+    float* candidates = (float*)malloc(max_candidates * 6 * sizeof(float));
     int count = 0;
 
-    int num_boxes = output_size / 6;
-    for (int i = 0; i < num_boxes && count < max_dets; i++) {
-        float conf = output[i*6 + 4];
-        if (conf < conf_thresh) continue;
+    // 2. 遍历所有 25200 个锚框
+    for (int i = 0; i < num_anchors; i++) {
+        const float* row = output + i * step; // 指向当前框的起始位置
 
-        dets[count].x1 = output[i*6 + 0] - output[i*6 + 2]/2; // cx - w/2
-        dets[count].y1 = output[i*6 + 1] - output[i*6 + 3]/2; // cy - h/2
-        dets[count].x2 = output[i*6 + 0] + output[i*6 + 2]/2;
-        dets[count].y2 = output[i*6 + 1] + output[i*6 + 3]/2;
-        dets[count].confidence = conf;
-        dets[count].class_id = (int)output[i*6 + 5];
-        snprintf(dets[count].class_name, sizeof(dets[count].class_name), "vehicle"); // 只有车辆
-        count++;
+        // 获取 Object Confidence (是否包含物体)
+        // 注意：如果你之前的 conf > 1，说明模型输出的是 raw logits，必须做 sigmoid
+        float obj_conf = sigmoid(row[4]); 
+
+        // 第一层过滤：如果物体置信度太低，直接跳过 (性能优化)
+        if (obj_conf < conf_thresh) continue;
+
+        // 寻找最大概率的类别
+        float max_cls_prob = 0.0f;
+        int cls_id = -1;
+        
+        for (int c = 0; c < num_classes; c++) {
+            // 同样需要 sigmoid
+            float cls_prob = sigmoid(row[5 + c]);
+            if (cls_prob > max_cls_prob) {
+                max_cls_prob = cls_prob;
+                cls_id = c;
+            }
+        }
+
+        // 最终得分 = 物体置信度 * 类别概率
+        float final_score = obj_conf * max_cls_prob;
+
+        // 第二层过滤
+        if (final_score < conf_thresh) continue;
+
+        // 解析坐标 (cx, cy, w, h) -> (x1, y1, x2, y2)
+        // 这里的坐标是基于 640x640 的
+        float cx = row[0]; // 这里的 xywh 有些模型是 raw，有些是已经处理过的
+        float cy = row[1]; // YOLOv5 ONNX export 默认通常是像素坐标，不需要 sigmoid
+        float w  = row[2];
+        float h  = row[3];
+
+        // 转换为左上角/右下角坐标
+        float x1 = cx - w * 0.5f;
+        float y1 = cy - h * 0.5f;
+        float x2 = cx + w * 0.5f;
+        float y2 = cy + h * 0.5f;
+
+        // 【关键】坐标映射回原始 640x480
+        // 我们之前做的是 Top-Aligned 的 Padding，所以 (0,0) 对齐
+        // 且没有缩放 (因为宽都是 640)，所以 x 和 y 不需要缩放
+        // 只需要过滤掉落在 Padding 区域 (黑色区域, y > 480) 的框
+        if (y1 > 480) continue; 
+
+        // 限制边界
+        if (x1 < 0) x1 = 0;
+        if (y1 < 0) y1 = 0;
+        if (x2 > 640) x2 = 640;
+        if (y2 > 480) y2 = 480;
+
+        if (count < max_candidates) {
+            candidates[count * 6 + 0] = x1;
+            candidates[count * 6 + 1] = y1;
+            candidates[count * 6 + 2] = x2;
+            candidates[count * 6 + 3] = y2;
+            candidates[count * 6 + 4] = final_score;
+            candidates[count * 6 + 5] = (float)cls_id;
+            count++;
+        }
     }
 
-    // NMS
-    int final_count = nms(dets, count, 0.5f);
-    *det_count = final_count;
-    return dets;
+    // 3. 执行 NMS (非极大值抑制) 去除重叠框
+    int* keep_indices = (int*)malloc(count * sizeof(int));
+    int keep_count = 0;
+    int* suppressed = (int*)calloc(count, sizeof(int));
+
+    // 简单的 NMS 实现
+    float nms_thresh = 0.45f;
+    for (int i = 0; i < count; i++) {
+        if (suppressed[i]) continue;
+        
+        keep_indices[keep_count++] = i;
+        
+        for (int j = i + 1; j < count; j++) {
+            if (suppressed[j]) continue;
+            
+            // 检查重叠度
+            float iou = compute_iou(&candidates[i*6], &candidates[j*6]);
+            
+            // 如果重叠严重，且分数较低的那个被抑制 (这里简化为抑制后面的)
+            if (iou > nms_thresh) {
+                suppressed[j] = 1;
+            }
+        }
+    }
+
+    // 4. 打包最终结果
+    Detection* results = (Detection*)malloc(keep_count * sizeof(Detection));
+    for (int k = 0; k < keep_count; k++) {
+        int idx = keep_indices[k];
+        float* ptr = candidates + idx * 6;
+        
+        results[k].x1 = ptr[0];
+        results[k].y1 = ptr[1];
+        results[k].x2 = ptr[2];
+        results[k].y2 = ptr[3];
+        results[k].confidence = ptr[4];
+        results[k].class_id = (int)ptr[5];
+        
+        // 调试打印
+        printf("检测到目标: Class=%d, Conf=%.2f, Rect=[%.0f, %.0f, %.0f, %.0f]\n", 
+               results[k].class_id, results[k].confidence,
+               results[k].x1, results[k].y1, results[k].x2, results[k].y2);
+    }
+
+    *det_count = keep_count;
+
+    // 清理
+    free(candidates);
+    free(keep_indices);
+    free(suppressed);
+
+    return results;
 }
 
 // 图像预处理函数，支持PP-OCR
