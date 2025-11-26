@@ -121,20 +121,89 @@ int onnx_model_init(ONNXModel* model, const char* model_path) {
 }
 
 // -------------------------
-// 简化推理：返回假数据
+// 真实推理
 // -------------------------
-int onnx_model_predict(ONNXModel* model, const float* input_data,
-                       size_t input_size, float** output, size_t* output_size)
-{
-    printf("执行模型推理(简化版)...\n");
+// 推理函数
+int onnx_model_predict(ONNXModel* model, const float* input_data, size_t input_size, float** output, size_t* output_size) {
+    printf("执行模型推理...\n");
 
-    *output_size = 1000;
-    *output = malloc(*output_size * sizeof(float));
-    for (size_t i = 0; i < *output_size; i++) {
-        (*output)[i] = (float)i / 1000.0f;
+    OrtStatus* status = NULL;
+
+    // 创建输入张量
+    OrtValue* input_tensor = NULL;
+    OrtMemoryInfo* memory_info = model->memory_info;
+    size_t input_data_size = input_size * sizeof(float);
+    printf("输入数据大小: %zu\n", input_data_size);
+
+    // 创建张量
+    status = ort->CreateTensorWithDataAsOrtValue(memory_info, (void*)input_data, input_data_size, 
+                                                 model->input_names, model->input_count, 
+                                                 ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input_tensor);
+    OrtCheck(status, "CreateTensorWithDataAsOrtValue failed");
+
+    // 创建输出张量
+    OrtValue* output_tensor = NULL;
+
+    // 执行推理
+    status = ort->Run(model->session, NULL, // 使用默认的运行选项
+                      model->input_names,    // 输入张量的名称
+                      &input_tensor, 1,       // 传入的输入张量及其数量
+                      model->output_names,     // 输出张量的名称
+                      model->output_count,     // 输出张量的数量
+                      &output_tensor);         // 输出张量数组
+    OrtCheck(status, "Run failed");
+
+    // 获取输出张量的类型和形状信息
+    const OrtTensorTypeAndShapeInfo* shape_info;
+    status = ort->GetTensorTypeAndShape(output_tensor, &shape_info);
+    OrtCheck(status, "GetTensorTypeAndShape failed");
+
+    // 获取输出张量的维度数量
+    size_t dims_count = 0;
+    status = ort->GetDimensionsCount(shape_info, &dims_count);
+    OrtCheck(status, "GetDimensionsCount failed");
+
+    // 获取输出张量的总元素数
+    size_t num_elements = 1;
+    int64_t* dims = malloc(dims_count * sizeof(int64_t));
+    status = ort->GetDimensions(shape_info, dims, dims_count);
+    OrtCheck(status, "GetDimensions failed");
+
+    for (size_t i = 0; i < dims_count; i++) {
+        num_elements *= dims[i];
     }
+    free(dims);
+
+    // 设置输出大小
+    *output_size = num_elements;
+
+    // 获取输出数据（使用 OrtGetTensorData 获取张量数据）
+    void* output_data = NULL;
+    // void* output_data = ort->GetTensorMutableData(output_tensor，&output_data);  // 获取原始数据指针
+    status = ort->GetTensorMutableData(output_tensor,&output_data);
+    OrtCheck(status, "GetTensorMutableData failed");  
+    if (output_data == NULL) {
+        fprintf(stderr, "获取输出数据失败\n");
+        return -1;
+    }
+
+    // 将输出数据拷贝到输出参数中
+    *output = malloc(*output_size * sizeof(float));
+    memcpy(*output, output_data, *output_size * sizeof(float));
+
+    // 释放张量
+    ort->ReleaseValue(input_tensor);
+    ort->ReleaseValue(output_tensor);
+
     return 0;
 }
+
+
+
+
+
+
+
 
 
 // -------------------------

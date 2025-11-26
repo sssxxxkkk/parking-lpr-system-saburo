@@ -43,8 +43,6 @@ Detection* yolo_postprocess(float* output, int output_size,
                             int img_w, int img_h,
                             float conf_thresh, int* det_count);
 void onnx_model_cleanup(ONNXModel* model);
-float* image_to_float_array(const unsigned char* image_data, int width, int height, int channels,
-                           float mean[3], float std[3]);
 
 // PP-OCR 专用函数声明
 Image preprocess_for_ppocr_det(const unsigned char* image_data, int width, int height);

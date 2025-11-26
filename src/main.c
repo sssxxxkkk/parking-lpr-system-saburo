@@ -114,11 +114,16 @@ int main(int argc, char* argv[]) {
     while (!g_shutdown_requested && frame_count < 10) {
         unsigned char* frame = NULL;
         camera_capture_frame(&cam, &frame);
+        printf("获取摄像头图像");
 
-        // 图像转 float
-        float* input_data = image_to_float_array(frame, 640, 480, 3, NULL, NULL);
-        
-        // ONNX 推理
+        // 1. 预处理成 640×640
+        Image resized = preprocess_for_yolo(frame, cam.width, cam.height, 640);
+
+        // 2. 转成 float 数组 (NCHW)
+        float* input_data = image_to_float_array(&resized);
+
+        // 3. 送入 ONNX 推理
+        // run_yolo_inference(session, input_tensor);
         float* output = NULL;
         size_t output_size = 0;
         onnx_model_predict(&g_vehicle_model, input_data, 640*480*3, &output, &output_size);
