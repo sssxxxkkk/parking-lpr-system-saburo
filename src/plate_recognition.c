@@ -52,6 +52,107 @@ void free_ocr_keys() {
     }
 }
 
+void clean_plate_text(char* text) {
+    if (!text) return;
+    
+    char* src = text; // 读取指针
+    char* dst = text; // 写入指针
+    
+    while (*src) {
+        unsigned char c = (unsigned char)*src;
+        
+        // 1. 处理 UTF-8 的中间点 '·' (0xC2 0xB7)
+        if (c == 0xC2 && (unsigned char)*(src+1) == 0xB7) {
+            src += 2; // 跳过这2个字节
+            continue;
+        }
+        
+        // 2. 处理 ASCII 的分隔符 (点、横杠、空格)
+        if (c == '.' || c == '-' || c == ' ') {
+            src++; // 跳过1个字节
+            continue;
+        }
+        
+        // 3. 保留有效字符 (数字、字母、汉字)
+        *dst = *src;
+        dst++;
+        src++;
+    }
+    
+    *dst = '\0';
+}
+
+// 定义省份首字
+const char* VALID_PROVINCES[] = {
+    "京","沪","津","渝","冀","晋","蒙","辽","吉","黑","苏",
+    "浙","皖","闽","赣","鲁","豫","鄂","湘","粤","桂","琼",
+    "川","贵","云","藏","陕","甘","青","宁","新", 
+    "港", "澳", "使", "领", "学", "警"
+};
+
+// 判断是否以合法的省份开头
+int is_valid_province(const char* txt) {
+    char first_char[4] = {0};
+    if (strlen(txt) < 3) return 0;
+    
+    memcpy(first_char, txt, 3);
+    
+    int num_provinces = sizeof(VALID_PROVINCES) / sizeof(VALID_PROVINCES[0]);
+    for(int i=0; i<num_provinces; i++) {
+        if (memcmp(first_char, VALID_PROVINCES[i], 3) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// 检查字符是否为 数字 或 大写字母
+int is_valid_alphanum(char c) {
+    if (c >= '0' && c <= '9') return 1;
+    if (c >= 'A' && c <= 'Z') return 1;
+    return 0;
+}
+
+// 识别符合车牌规则
+int fix_and_validate_plate(char* plate_text) {
+    if (!plate_text || strlen(plate_text) < 7) return 0;
+
+    // 1. 检查首字是否为省份
+    if (!is_valid_province(plate_text)) {
+        return 0;
+    }
+
+    // 2. 检查后续字符
+    int i = 3; 
+    char clean_buf[32] = {0};
+    
+    memcpy(clean_buf, plate_text, 3);
+    int clean_idx = 3;
+
+    while (plate_text[i] != '\0') {
+        char c = plate_text[i];
+        
+        if (is_valid_alphanum(c)) {
+            clean_buf[clean_idx++] = c;
+        }
+        else if ((unsigned char)c > 127) {
+
+        }
+
+        if ((unsigned char)c > 127) i += 3;
+        else i++;
+    }
+    clean_buf[clean_idx] = '\0';
+    
+    // 3. 长度校验
+    int final_len = strlen(clean_buf);
+    if (final_len < 7 || final_len > 9) return 0;
+    
+    // 覆盖回原字符串
+    strcpy(plate_text, clean_buf);
+    return 1;
+}
+
 static void save_plate_debug(const char* filename, unsigned char* rgb, int w, int h) {
     FILE* f = fopen(filename, "wb");
     if (!f) return;
@@ -75,53 +176,6 @@ void system_cleanup() {
     onnx_model_cleanup(&g_net_ocr);
     free_ocr_keys();
 }
-
-
-// ---------------------------------------------------------
-// 真正的 CTC 解码函数
-// data: 模型输出的概率矩阵 [1, 40, 6625] (Batch, Seq, Class)
-// seq_len: 序列长度 (通常是 40 或 48，取决于模型输出维度)
-// num_classes: 类别总数 (6625)
-// ---------------------------------------------------------
-// void decode_ocr_real(float* data, int seq_len, int num_classes, char* buffer) {
-//     buffer[0] = '\0';
-//     int last_index = -1; 
-
-//     for (int t = 0; t < seq_len; t++) {
-//         float max_score = -10000.0f;
-//         int max_idx = 0;
-        
-//         // 指针偏移 (这里 num_classes 必须正确，否则全乱)
-//         float* current_step_data = data + t * num_classes;
-
-//         for (int c = 0; c < num_classes; c++) {
-//             if (current_step_data[c] > max_score) {
-//                 max_score = current_step_data[c];
-//                 max_idx = c;
-//             }
-//         }
-
-//         // 置信度阈值 (可选)：防止输出太差的字
-//         if (max_score < 0.5f) continue;
-
-//         if (max_idx != 0 && max_idx != last_index) {
-//             int dict_idx = max_idx - 1;
-            
-//             // 【关键修复】增加越界检查！
-//             // 只有当模型识别出的索引在你的字典范围内时，才转换
-//             if (dict_idx >= 0 && dict_idx < g_keys_count) {
-//                 strcat(buffer, g_keys[dict_idx]);
-//             } else {
-//                 // 如果字典不全，模型识别出了字典外的字，用 ? 代替
-//                 // strcat(buffer, "?"); 
-//             }
-//         }
-//         last_index = max_idx;
-//     }
-// }
-// 修改 src/plate_recognition.c
-
-// 修改 src/plate_recognition.c
 
 void decode_ocr_real(float* data, int seq_len, int num_classes, char* buffer) {
     buffer[0] = '\0';
@@ -168,11 +222,6 @@ void decode_ocr_real(float* data, int seq_len, int num_classes, char* buffer) {
         printf("[OCR DEBUG] 模型认为全是空白 (Blank)\n");
     }
 }
-
-// // 模拟 OCR 解码
-// void decode_ocr_dummy(float* ocr_out, int seq_len, int dict_size, char* buffer) {
-//     strcpy(buffer, "苏A88888"); 
-// }
 
 DetectionResult* process_frame(unsigned char* img_data, int w, int h, int* count) {
     *count = 0;
@@ -327,12 +376,23 @@ DetectionResult* process_frame(unsigned char* img_data, int w, int h, int* count
                             int seq_len = ocr_len / model_num_classes;
                             
                             decode_ocr_real(ocr_out, seq_len, model_num_classes, results[*count].plate_text);
+
+                            // 去除点号
+                            clean_plate_text(results[*count].plate_text);
+
+                            // 强规则校验和清洗
+                            int is_valid = fix_and_validate_plate(results[*count].plate_text);
+                            
+                            if (is_valid) {
+                                (*count)++;
+                            } else { 
+                                
+                            }
                             
                             if (strlen(results[*count].plate_text) == 0) {
                                 strcpy(results[*count].plate_text, "无法识别");
                             }
 
-                            (*count)++;
                             free(ocr_out);
                         }
                         
@@ -350,133 +410,3 @@ DetectionResult* process_frame(unsigned char* img_data, int w, int h, int* count
     free(v_in);
     return results;
 }
-
-// DetectionResult* process_frame(unsigned char* img_data, int w, int h, int* count) {
-//     *count = 0;
-//     if(!img_data) return NULL;
-    
-//     DetectionResult* results = calloc(5, sizeof(DetectionResult));
-    
-//     // --- Step 1: 车辆检测 (YOLO) ---
-//     float* v_in = malloc(1*3*640*640*sizeof(float));
-//     preprocess_yolo(img_data, w, h, 640, v_in);
-    
-//     int64_t v_shape[] = {1,3,640,640};
-//     float* v_out = NULL; 
-//     size_t v_len = 0;
-
-//     if(onnx_model_predict(&g_net_vehicle, v_in, v_shape, 4, &v_out, &v_len) == 0) {
-//         Detection cars[20]; 
-//         int car_cnt = 0;
-//         postprocess_yolo(v_out, 25200, 0.5f, w, h, cars, &car_cnt); // 0.5 置信度
-        
-//         //NMS 去重。阈值0.45，表示如果两个框重叠面积超过 45%，就认为是同一个车
-//         nms_yolo(cars, &car_cnt, 0.45f);
-
-//         // 只有检测到车，才进行下一步
-//         for(int i=0; i<car_cnt && *count < 5; i++) {
-//             int cx = (int)cars[i].x1;
-//             int cy = (int)cars[i].y1;
-//             int cw = (int)(cars[i].x2 - cars[i].x1);
-//             int ch = (int)(cars[i].y2 - cars[i].y1);
-            
-
-//             // 过滤过小的车
-//             if(cw < 50 || ch < 50) continue;
-
-//             // --- Step 2: 车辆抠图 & 车牌定位 (PP-OCR Det) ---
-//             unsigned char* car_img = malloc(cw * ch * 3);
-//             crop_image_rgb(img_data, w, h, cx, cy, cw, ch, car_img);
-
-//             save_plate_debug("debug_plate.ppm", car_img, cw, ch);
-
-//             int det_size = 640; // Det 模型输入通常是 32 倍数
-//             float* p_in = malloc(1*3*det_size*det_size*sizeof(float));
-//             preprocess_dbnet(car_img, cw, ch, det_size, p_in);
-            
-//             int64_t p_shape[] = {1,3,det_size,det_size};
-//             float* p_out = NULL; size_t p_len = 0;
-            
-//             if(onnx_model_predict(&g_net_plate, p_in, p_shape, 4, &p_out, &p_len) == 0) {
-//                 // 后处理找框
-//                 int px, py, pw, ph;
-//                 postprocess_dbnet(p_out, det_size, det_size, 0.3f, &px, &py, &pw, &ph);
-                
-//                 if(pw > 0 && ph > 0) {
-//                     // 坐标映射： Det图 -> 车辆图 -> 原图
-//                     float scale = fminf((float)det_size/cw, (float)det_size/ch);
-//                     int gx = cx + (int)(px / scale);
-//                     int gy = cy + (int)(py / scale);
-//                     int gw = (int)(pw / scale);
-//                     int gh = (int)(ph / scale);
-                    
-//                     // 防欺诈检测：车牌是否过大(比如占了车辆宽度的90%以上，可能是人拿牌子)
-//                     if (gw < cw * 0.9) {
-//                         // --- Step 3: 车牌识别 (OCR Rec) ---
-//                         unsigned char* plate_img = malloc(gw * gh * 3);
-//                         crop_image_rgb(img_data, w, h, gx, gy, gw, gh, plate_img);
-
-//                         float* ocr_in = malloc(1*3*48*320*sizeof(float));
-//                         preprocess_ocr(plate_img, gw, gh, ocr_in);
-                        
-//                         int64_t ocr_shape[] = {1,3,48,320};
-//                         float* ocr_out = NULL; size_t ocr_len = 0;
-                        
-//                         if(onnx_model_predict(&g_net_ocr, ocr_in, ocr_shape, 4, &ocr_out, &ocr_len) == 0) {
-//                             results[*count].confidence = cars[i].confidence;
-//                             results[*count].vehicle_bbox[0] = cx;
-//                             results[*count].vehicle_bbox[1] = cy;
-//                             results[*count].vehicle_bbox[2] = cw;
-//                             results[*count].vehicle_bbox[3] = ch;
-//                             results[*count].is_fraud = 0;
-                            
-//                             // 1. 确定模型的真实类别数 (Model Class Size)
-//                             // 绝大多数 PP-OCR 中文模型(v2/v3/v4) 都是 6625 类
-//                             int model_num_classes = 6625; 
-                            
-//                             // 简单的自动推断：如果总长度能被 6625 整除，那就是 6625
-//                             if (ocr_len % 6625 == 0) {
-//                                 model_num_classes = 6625;
-//                             } 
-//                             // 如果是英文数字模型，可能是 97
-//                             else if (ocr_len % 97 == 0) {
-//                                 model_num_classes = 97;
-//                             }
-//                             else {
-//                                 // 兜底：如果都不是，可能计算有误，打印警告
-//                                 printf("[Warn] OCR输出尺寸异常: %ld\n", ocr_len);
-//                             }
-
-//                             // 2. 计算序列长度 (Sequence Length)
-//                             int seq_len = ocr_len / model_num_classes;
-
-//                             // 3. 解码
-//                             // 注意：这里传给解码器的必须是 model_num_classes (用于指针步长)
-//                             // 而不是 g_keys_count (那个只用于查表)
-//                             decode_ocr_real(ocr_out, seq_len, model_num_classes, results[*count].plate_text);
-                            
-//                             // 如果解码为空，说明没识别出来
-//                             if (strlen(results[*count].plate_text) == 0) {
-//                                 strcpy(results[*count].plate_text, "未知");
-//                             }
-
-//                             (*count)++;
-//                             free(ocr_out);
-//                         }
-                        
-//                         free(ocr_in);
-//                         free(plate_img);
-//                     } else {
-//                         printf("警告：疑似欺诈！车牌尺寸异常。\n");
-//                     }
-//                 }
-//                 free(p_out);
-//             }
-//             free(p_in);
-//             free(car_img);
-//         }
-//         free(v_out);
-//     }
-//     free(v_in);
-//     return results;
-// }

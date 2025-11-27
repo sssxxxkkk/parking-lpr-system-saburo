@@ -12,7 +12,7 @@ void handle_sig(int sig) { (void)sig; g_running = 0; }
 int main() {
     signal(SIGINT, handle_sig);
 
-    // 1. 加载配置
+    // 加载配置
     AppConfig config = {
         .device = "/dev/video0",
         .vehicle_model = "models/yolov5s.onnx",
@@ -20,10 +20,10 @@ int main() {
         .ocr_model = "models/ppocr_rec_v4.onnx"
     };
 
-    // 2. 初始化 AI 系统
+    // 初始化 AI 系统
     if (system_init(&config) != 0) return -1;
 
-    // 3. 初始化摄像头
+    // 初始化摄像头
     CameraContext cam;
     if (camera_init(&cam, config.device, 1280, 720) != 0) {
         system_cleanup();
@@ -40,7 +40,6 @@ int main() {
         int ret = camera_capture(&cam, &frame);
         if (ret == 0) {
             loop_count++ ;
-
 
             if (loop_count % 30 == 0) {
                 printf("."); 
