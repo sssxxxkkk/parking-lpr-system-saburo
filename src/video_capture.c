@@ -6,7 +6,7 @@
 #include <sys/mman.h>
 #include <linux/videodev2.h>
 #include <string.h>
-#include <unistd.h> // close 函数需要这个
+#include <unistd.h>
 
 struct buffer { void* start; size_t length; };
 static struct buffer g_bufs[4];

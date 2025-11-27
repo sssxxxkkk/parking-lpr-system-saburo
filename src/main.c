@@ -9,15 +9,6 @@
 static int g_running = 1;
 void handle_sig(int sig) { (void)sig; g_running = 0; }
 
-void save_ppm(const char* filename, unsigned char* rgb, int w, int h) {
-    FILE* f = fopen(filename, "wb");
-    if (!f) return;
-    fprintf(f, "P6\n%d %d\n255\n", w, h);
-    fwrite(rgb, 1, w * h * 3, f);
-    fclose(f);
-    printf("[DEBUG] 已保存调试图片: %s\n", filename);
-}
-
 int main() {
     signal(SIGINT, handle_sig);
 
@@ -34,7 +25,7 @@ int main() {
 
     // 3. 初始化摄像头
     CameraContext cam;
-    if (camera_init(&cam, config.device, 640, 480) != 0) {
+    if (camera_init(&cam, config.device, 1280, 720) != 0) {
         system_cleanup();
         return -1;
     }
@@ -46,16 +37,24 @@ int main() {
     while (g_running) {
         
         unsigned char* frame = NULL;
-        if (camera_capture(&cam, &frame) == 0) {
-            int count = 0;
-            // 核心调用
-            DetectionResult* results = process_frame(frame, cam.width, cam.height, &count);
+        int ret = camera_capture(&cam, &frame);
+        if (ret == 0) {
+            loop_count++ ;
+
 
             if (loop_count % 30 == 0) {
                 printf("."); 
                 fflush(stdout);
             }
 
+            if (loop_count % 5 != 0) {
+                usleep(1000); 
+                continue; 
+            }
+
+            int count = 0;
+            // 核心调用
+            DetectionResult* results = process_frame(frame, cam.width, cam.height, &count);
             if (count > 0) {
                 printf(">>> 帧检测: %d 辆车\n", count);
                 for (int i = 0; i < count; i++) {
@@ -69,9 +68,10 @@ int main() {
             }
 
             if (results) free(results);
+        } else {
+            // loop_count++ ;
+            usleep(10000); // 10ms
         }
-        loop_count++ ;
-        usleep(10000); // 10ms
     }
 
     camera_close(&cam);

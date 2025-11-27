@@ -19,4 +19,7 @@ void preprocess_ocr(const unsigned char* src, int w, int h, float* dst);
 // 图像裁剪
 void crop_image_rgb(const unsigned char* src, int src_w, int src_h, int x, int y, int w, int h, unsigned char* dst);
 
+//nms
+void nms_yolo(Detection* dets, int* count, float iou_thres);
+
 #endif
