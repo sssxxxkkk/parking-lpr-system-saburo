@@ -1,5 +1,5 @@
 # parking-lpr-system-saburo
-待办
-👉 1. 车牌检测模块（Plate Detector）
-👉 2. 车牌纠正（四点变换）
-👉 3. OCR（PP-OCR / CRNN）
+待办  准确度完善
+👉 1. 车辆检测框
+👉 2. 车牌检测框
+👉 3. OCR（PP-OCR）
