@@ -12,13 +12,13 @@ if [ ! -f "models/yolov5s.onnx" ]; then
     exit 1
 fi
 
-if [ ! -f "models/ppocr_det.onnx" ]; then
-    echo "错误: ppocr_det.onnx 不存在"
+if [ ! -f "models/ppocr_det_v4.onnx" ]; then
+    echo "错误: ppocr_det_v4.onnx 不存在"
     exit 1
 fi
 
-if [ ! -f "models/ppocr_rec.onnx" ]; then
-    echo "错误: ppocr_rec.onnx 不存在"
+if [ ! -f "models/ppocr_rec_v4.onnx" ]; then
+    echo "错误: ppocr_rec_v4.onnx 不存在"
     exit 1
 fi
 

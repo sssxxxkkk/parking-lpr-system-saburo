@@ -16,8 +16,8 @@ int main() {
     AppConfig config = {
         .device = "/dev/video0",
         .vehicle_model = "models/yolov5s.onnx",
-        .plate_model = "models/ppocr_det.onnx",
-        .ocr_model = "models/ppocr_rec.onnx"
+        .plate_model = "models/ppocr_det_v4.onnx",
+        .ocr_model = "models/ppocr_rec_v4.onnx"
     };
 
     // 2. 初始化 AI 系统

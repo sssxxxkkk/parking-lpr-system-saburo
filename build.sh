@@ -20,10 +20,10 @@ echo "检查模型文件..."
 if [ ! -f "models/yolov5s.onnx" ]; then
     echo "警告: yolov5s.onnx 未找到"
 fi
-if [ ! -f "models/ppocr_det.onnx" ]; then
+if [ ! -f "models/ppocr_det_v4.onnx" ]; then
     echo "警告: ppocr_det.onnx 未找到"
 fi
-if [ ! -f "models/ppocr_rec.onnx" ]; then
+if [ ! -f "models/ppocr_rec_v4.onnx" ]; then
     echo "警告: ppocr_rec.onnx 未找到"
 fi
 
