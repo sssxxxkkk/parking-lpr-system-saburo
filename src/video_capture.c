@@ -116,7 +116,6 @@ int camera_capture(CameraContext* ctx, unsigned char** out) {
     
     // 从队列中取出一帧
     if (ioctl(ctx->fd, VIDIOC_DQBUF, &buf) < 0) {
-        // 偶尔失败是正常的，不要立即退出
         return -1;
     }
     

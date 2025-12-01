@@ -113,6 +113,30 @@ int is_valid_alphanum(char c) {
     return 0;
 }
 
+// 序号位不使用字母 O 和 I
+void optimize_char_confusion(char* text) {
+    if (!text || strlen(text) < 7) return;
+
+    // 1. 修正发牌机关 (第2位字符，即 index 3)
+    if (text[3] == '0') {
+        text[3] = 'O';
+    }
+
+    int i = 4;
+    while (text[i] != '\0') {
+        // 将 O 修正为 0
+        if (text[i] == 'O') {
+            text[i] = '0';
+        }
+        // 将 I 修正为 1
+        else if (text[i] == 'I') {
+            text[i] = '1';
+        }
+
+        i++;
+    }
+}
+
 // 识别符合车牌规则
 int fix_and_validate_plate(char* plate_text) {
     if (!plate_text || strlen(plate_text) < 7) return 0;
@@ -216,11 +240,11 @@ void decode_ocr_real(float* data, int seq_len, int num_classes, char* buffer) {
         last_index = max_idx;
     }
     
-    if (has_valid_char) {
-        printf("[OCR DEBUG] 原始索引序列: %s\n", debug_buf);
-    } else {
-        printf("[OCR DEBUG] 模型认为全是空白 (Blank)\n");
-    }
+    // if (has_valid_char) {
+    //     printf("[OCR DEBUG] 原始索引序列: %s\n", debug_buf);
+    // } else {
+    //     printf("[OCR DEBUG] 模型认为全是空白 (Blank)\n");
+    // }
 }
 
 DetectionResult* process_frame(unsigned char* img_data, int w, int h, int* count) {
@@ -282,7 +306,7 @@ DetectionResult* process_frame(unsigned char* img_data, int w, int h, int* count
             if (cy + ch > h) ch = h - cy;
             
             // 打印修正后的车辆坐标，用于调试
-            printf("[DEBUG] 车辆 #%d 修正坐标: x=%d y=%d w=%d h=%d\n", i, cx, cy, cw, ch);
+            // printf("[DEBUG] 车辆 #%d 修正坐标: x=%d y=%d w=%d h=%d\n", i, cx, cy, cw, ch);
 
             // ========================================================
             // Step 2: 车辆抠图 & 车牌定位 (DBNet)
@@ -290,10 +314,10 @@ DetectionResult* process_frame(unsigned char* img_data, int w, int h, int* count
             unsigned char* car_img = malloc(cw * ch * 3);
             crop_image_rgb(img_data, w, h, cx, cy, cw, ch, car_img);
 
-            // 保存这张图！看看是不是包含了完整的车牌
-            char debug_name[64];
-            snprintf(debug_name, 64, "debug_car_%d.ppm", i);
-            save_plate_debug(debug_name, car_img, cw, ch);
+            // 保存图 完整车牌
+            // char debug_name[64];
+            // snprintf(debug_name, 64, "debug_car_%d.ppm", i);
+            // save_plate_debug(debug_name, car_img, cw, ch);
 
             // 车牌定位输入尺寸 (建议设为 640 以提高小目标检出率)
             int det_size = 640; 
@@ -351,8 +375,8 @@ DetectionResult* process_frame(unsigned char* img_data, int w, int h, int* count
                         crop_image_rgb(img_data, w, h, gx, gy, gw, gh, plate_img);
                         
                         // 保存最终车牌图，用于确认
-                        snprintf(debug_name, 64, "debug_plate_%d.ppm", i);
-                        save_plate_debug(debug_name, plate_img, gw, gh);
+                        // snprintf(debug_name, 64, "debug_plate_%d.ppm", i);
+                        // save_plate_debug(debug_name, plate_img, gw, gh);
 
                         float* ocr_in = malloc(1*3*48*320*sizeof(float));
                         preprocess_ocr(plate_img, gw, gh, ocr_in);
@@ -380,13 +404,16 @@ DetectionResult* process_frame(unsigned char* img_data, int w, int h, int* count
                             // 去除点号
                             clean_plate_text(results[*count].plate_text);
 
+                            // 混淆修正
+                            optimize_char_confusion(results[*count].plate_text);
+
                             // 强规则校验和清洗
                             int is_valid = fix_and_validate_plate(results[*count].plate_text);
                             
                             if (is_valid) {
                                 (*count)++;
                             } else { 
-                                
+
                             }
                             
                             if (strlen(results[*count].plate_text) == 0) {

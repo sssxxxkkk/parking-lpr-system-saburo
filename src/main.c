@@ -52,7 +52,7 @@ int main() {
             }
 
             int count = 0;
-            // 核心调用
+
             DetectionResult* results = process_frame(frame, cam.width, cam.height, &count);
             if (count > 0) {
                 printf(">>> 帧检测: %d 辆车\n", count);
